@@ -1,4 +1,4 @@
-name: Cobol-to-MODERNISM Build + AutoTag + Release v3
+name: Cobol-to-MODERNISM Build + AutoTag + Release v4
 
 on:
   push:
@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     name: Auto Version Tagging
 
-    # ★★★★★ MUST HAVE — next jobs read this
     outputs:
       tag: ${{ steps.generate_tag.outputs.tag }}
 
@@ -44,6 +43,7 @@ jobs:
     name: 3OS Build + ProofLedger
 
     strategy:
+      fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
 
@@ -66,6 +66,10 @@ jobs:
       - name: Build Binary
         run: cargo build --release
 
+      # ------------------------------------
+      # SHA256
+      # ------------------------------------
+
       - name: SHA256 (Unix)
         if: matrix.os != 'windows-latest'
         run: |
@@ -76,32 +80,48 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           mkdir proof
-          certutil -hashfile target\\release\\cobol_to_modernism.exe SHA256 > proof\\SHA256_windows.txt
+          certutil -hashfile target\release\cobol_to_modernism.exe SHA256 > proof\SHA256_windows.txt
         shell: powershell
 
-      - name: ProofLedger
+      # ------------------------------------
+      # ProofLedger
+      # ------------------------------------
+
+      - name: Create ProofLedger
         run: |
           mkdir ledger
           {
-            echo "=== ProofLedger ==="
+            echo "=== Cobol-to-MODERNISM ProofLedger ==="
             echo "OS: ${{ matrix.os }}"
             echo "Tag: ${{ env.TAG }}"
             echo "Commit: ${{ env.COMMIT }}"
             echo "Branch: ${{ env.BRANCH }}"
             echo "Time: ${{ env.TIME }}"
-            cat proof/*.txt
+            echo "-----------------------------------"
+            cat proof/*.txt || true
           } > ledger/PROOF_LEDGER_${{ matrix.os }}.txt
 
-      - name: Pack Dist
+      # ------------------------------------
+      # DIST Packaging (OS별 shell 나눔)
+      # ------------------------------------
+
+      - name: Package Dist (Unix)
+        if: matrix.os != 'windows-latest'
         run: |
           mkdir dist
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp target/release/cobol_to_modernism.exe dist/
-          else
-            cp target/release/cobol_to_modernism dist/
-          fi
+          cp target/release/cobol_to_modernism dist/
           cp -r proof dist/
           cp -r ledger dist/
+        shell: bash
+
+      - name: Package Dist (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir dist
+          Copy-Item "target\release\cobol_to_modernism.exe" -Destination "dist\"
+          Copy-Item "proof" -Destination "dist\" -Recurse
+          Copy-Item "ledger" -Destination "dist\" -Recurse
+        shell: powershell
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -120,7 +140,7 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Zip All
+      - name: Zip All Artifacts
         run: |
           cd artifacts
           zip -r Cobol-to-MODERNISM_${{ needs.autotag.outputs.tag }}.zip .
@@ -133,3 +153,4 @@ jobs:
           files: artifacts/Cobol-to-MODERNISM_${{ needs.autotag.outputs.tag }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
