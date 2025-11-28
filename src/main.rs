@@ -9,7 +9,7 @@ mod transpiler;
 use std::fs;
 
 fn main() {
-    let code = fs::read_to_string("examples/hello.cobol").unwrap();
+    let code = fs::read_to_string("examples/acc_process.cobol").unwrap();
 
     // 1) COBOL → AST
     let tokens = lexer::tokenize(&code);
