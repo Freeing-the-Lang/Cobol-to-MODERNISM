@@ -1,11 +1,11 @@
-name: Cobol-to-MODERNISM Build + Auto Tag + Release
+name: Cobol-to-MODERNISM Build + AutoTag + Release v2
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
-# ★ GitHub Actions Bot 권한 활성화
+# Github Actions Bot permission 설정 (필수)
 permissions:
   contents: write
   actions: write
@@ -15,25 +15,30 @@ jobs:
     name: Auto Version Tagging
     runs-on: ubuntu-latest
 
+    # ★★★★★ build+release job으로 tag 전달
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate Version
+      - name: Generate Version Tag
         id: ver
         run: |
           DATE=$(date +'%Y%m%d')
           TIME=$(date +'%H%M%S')
           VERSION="v0.1.${DATE}${TIME}"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "tag=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Create Tag
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated tag: $VERSION"
+
+      - name: Create Git Tag
         uses: rickstaa/action-create-tag@v1
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ steps.ver.outputs.tag }}
           message: "Auto release version ${{ steps.ver.outputs.tag }}"
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     name: 3OS Build + ProofLedger
@@ -54,17 +59,17 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Metadata
+      - name: Export Metadata
         run: |
           echo "TAG=${{ needs.autotag.outputs.tag }}" >> $GITHUB_ENV
           echo "COMMIT=${{ github.sha }}" >> $GITHUB_ENV
           echo "BRANCH=${{ github.ref_name }}" >> $GITHUB_ENV
           echo "TIME=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_ENV
-        shell: bash
 
-      - name: Build
+      - name: Build Release Binary
         run: cargo build --release
 
+      # SHA256
       - name: SHA256 (Unix)
         if: matrix.os != 'windows-latest'
         run: |
@@ -78,7 +83,8 @@ jobs:
           certutil -hashfile target\\release\\cobol_to_modernism.exe SHA256 > proof\\SHA256_windows.txt
         shell: powershell
 
-      - name: ProofLedger
+      # ProofLedger
+      - name: Create ProofLedger
         run: |
           mkdir ledger
           {
@@ -86,13 +92,14 @@ jobs:
             echo "OS: ${{ matrix.os }}"
             echo "Branch: ${{ env.BRANCH }}"
             echo "Commit: ${{ env.COMMIT }}"
-            echo "Tag: ${{ needs.autotag.outputs.tag }}"
+            echo "Tag: ${{ env.TAG }}"
             echo "Time: ${{ env.TIME }}"
-            echo "-----------------------------------"
+            echo "-------------------------------------"
             cat proof/*.txt || true
           } > ledger/PROOF_LEDGER_${{ matrix.os }}.txt
 
-      - name: Package
+      # dist package
+      - name: Package Dist
         run: |
           mkdir dist
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
@@ -104,7 +111,7 @@ jobs:
           cp -r ledger dist/
         shell: bash
 
-      - name: Upload Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Cobol-to-MODERNISM-${{ matrix.os }}
@@ -121,13 +128,13 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Zip All
+      - name: Zip All Artifacts
         run: |
           cd artifacts
           zip -r Cobol-to-MODERNISM_${{ needs.autotag.outputs.tag }}.zip .
         shell: bash
 
-      - name: GitHub Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.autotag.outputs.tag }}
