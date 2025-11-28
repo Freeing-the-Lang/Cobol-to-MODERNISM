@@ -5,6 +5,11 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# ★ GitHub Actions Bot 권한 활성화
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   autotag:
     name: Auto Version Tagging
@@ -21,13 +26,14 @@ jobs:
           TIME=$(date +'%H%M%S')
           VERSION="v0.1.${DATE}${TIME}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "::set-output name=tag::$VERSION"
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Push Tag
+      - name: Create Tag
         uses: rickstaa/action-create-tag@v1
         with:
           tag: ${{ steps.ver.outputs.tag }}
-          tag_message: "Auto release version ${{ steps.ver.outputs.tag }}"
+          message: "Auto release version ${{ steps.ver.outputs.tag }}"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     name: 3OS Build + ProofLedger
@@ -59,7 +65,6 @@ jobs:
       - name: Build
         run: cargo build --release
 
-      # ============= SHA256 Proof =============
       - name: SHA256 (Unix)
         if: matrix.os != 'windows-latest'
         run: |
@@ -70,10 +75,9 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           mkdir proof
-          certutil -hashfile target\release\cobol_to_modernism.exe SHA256 > proof\SHA256_windows.txt
+          certutil -hashfile target\\release\\cobol_to_modernism.exe SHA256 > proof\\SHA256_windows.txt
         shell: powershell
 
-      # ============= Proof Ledger =============
       - name: ProofLedger
         run: |
           mkdir ledger
@@ -88,7 +92,6 @@ jobs:
             cat proof/*.txt || true
           } > ledger/PROOF_LEDGER_${{ matrix.os }}.txt
 
-      # ============= Dist Packaging =============
       - name: Package
         run: |
           mkdir dist
@@ -108,7 +111,7 @@ jobs:
           path: dist/
 
   release:
-    name: Create Release Asset
+    name: Create Release
     needs: build
     runs-on: ubuntu-latest
 
@@ -132,4 +135,5 @@ jobs:
           files: artifacts/Cobol-to-MODERNISM_${{ needs.autotag.outputs.tag }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
