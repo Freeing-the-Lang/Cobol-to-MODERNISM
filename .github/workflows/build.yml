@@ -1,15 +1,38 @@
-name: Cobol-to-MODERNISM Build
+name: Cobol-to-MODERNISM Build + Auto Tag + Release
 
 on:
   push:
     branches: [ main ]
-  pull_request:
   workflow_dispatch:
 
 jobs:
+  autotag:
+    name: Auto Version Tagging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate Version
+        id: ver
+        run: |
+          DATE=$(date +'%Y%m%d')
+          TIME=$(date +'%H%M%S')
+          VERSION="v0.1.${DATE}${TIME}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "::set-output name=tag::$VERSION"
+
+      - name: Push Tag
+        uses: rickstaa/action-create-tag@v1
+        with:
+          tag: ${{ steps.ver.outputs.tag }}
+          tag_message: "Auto release version ${{ steps.ver.outputs.tag }}"
+
   build:
     name: 3OS Build + ProofLedger
     runs-on: ${{ matrix.os }}
+    needs: autotag
 
     strategy:
       fail-fast: false
@@ -19,55 +42,56 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Set up workspace
+      - name: Metadata
         run: |
-          echo "BUILD_OS=${{ matrix.os }}" >> $GITHUB_ENV
-          echo "COMMIT_HASH=${{ github.sha }}" >> $GITHUB_ENV
-          echo "BUILD_BRANCH=${{ github.ref_name }}" >> $GITHUB_ENV
-          echo "BUILD_TIME=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_ENV
+          echo "TAG=${{ needs.autotag.outputs.tag }}" >> $GITHUB_ENV
+          echo "COMMIT=${{ github.sha }}" >> $GITHUB_ENV
+          echo "BRANCH=${{ github.ref_name }}" >> $GITHUB_ENV
+          echo "TIME=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_ENV
         shell: bash
 
-      - name: Build (Release Mode)
+      - name: Build
         run: cargo build --release
 
-      # ============= SHA256 PROOF =============
-      - name: Generate SHA256 Proof
+      # ============= SHA256 Proof =============
+      - name: SHA256 (Unix)
         if: matrix.os != 'windows-latest'
         run: |
           mkdir -p proof
           sha256sum target/release/cobol_to_modernism > proof/SHA256_${{ matrix.os }}.txt
-        shell: bash
 
-      - name: Generate SHA256 Proof (Windows)
+      - name: SHA256 (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           mkdir proof
           certutil -hashfile target\release\cobol_to_modernism.exe SHA256 > proof\SHA256_windows.txt
         shell: powershell
 
-      # ============= ProofLedger =============
-      - name: Create ProofLedger
+      # ============= Proof Ledger =============
+      - name: ProofLedger
         run: |
-          mkdir -p ledger
+          mkdir ledger
           {
             echo "=== Cobol-to-MODERNISM ProofLedger ==="
             echo "OS: ${{ matrix.os }}"
-            echo "Branch: ${{ env.BUILD_BRANCH }}"
-            echo "Commit: ${{ env.COMMIT_HASH }}"
-            echo "Time: ${{ env.BUILD_TIME }}"
-            echo "---------------------------------------"
-            cat proof/SHA256_${{ matrix.os }}*.txt || true
+            echo "Branch: ${{ env.BRANCH }}"
+            echo "Commit: ${{ env.COMMIT }}"
+            echo "Tag: ${{ needs.autotag.outputs.tag }}"
+            echo "Time: ${{ env.TIME }}"
+            echo "-----------------------------------"
+            cat proof/*.txt || true
           } > ledger/PROOF_LEDGER_${{ matrix.os }}.txt
-        shell: bash
 
-      # ============= Artifact Packaging =============
-      - name: Package Artifact
+      # ============= Dist Packaging =============
+      - name: Package
         run: |
-          mkdir -p dist
+          mkdir dist
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             cp target/release/cobol_to_modernism.exe dist/
           else
@@ -77,36 +101,35 @@ jobs:
           cp -r ledger dist/
         shell: bash
 
-      - name: Upload Artifact
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Cobol-to-MODERNISM-${{ matrix.os }}
           path: dist/
 
-  # ============= RELEASE JOB =============
   release:
+    name: Create Release Asset
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
+      - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
 
-      - name: Zip all artifacts
+      - name: Zip All
         run: |
-          cd artifacts/
-          zip -r Cobol-to-MODERNISM_release_${{ github.ref_name }}.zip .
+          cd artifacts
+          zip -r Cobol-to-MODERNISM_${{ needs.autotag.outputs.tag }}.zip .
         shell: bash
 
-      - name: Release Upload
+      - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/Cobol-to-MODERNISM_release_${{ github.ref_name }}.zip
+          tag_name: ${{ needs.autotag.outputs.tag }}
+          name: "Cobol-to-MODERNISM Release ${{ needs.autotag.outputs.tag }}"
+          files: artifacts/Cobol-to-MODERNISM_${{ needs.autotag.outputs.tag }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
