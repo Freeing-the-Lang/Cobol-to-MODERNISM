@@ -1,4 +1,9 @@
 use crate::ast::Node;
+use crate::modernism_ir::{ModernIR, ast_to_modernism_ir};
+
+pub fn to_modernism_ir(nodes: Vec<Node>) -> Vec<ModernIR> {
+    ast_to_modernism_ir(nodes)
+}
 
 pub fn to_modernism(nodes: Vec<Node>) -> String {
     let mut out = String::new();
